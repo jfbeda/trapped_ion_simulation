@@ -1,3 +1,37 @@
+#Written 2025-07-25 by Jack Beda (jack.beda.ca).
+###############################################################
+
+'''
+This is the real meat and potatos of the simulation. It is here that you can initialize simulations, run them, etc. While most of the time you are interested in running many simulations in parralel (see parralel.py), you can also run and visualize individual simulations and trajectories. this contains:
+
+    SimulationConfig
+        # This class produces an object we usually call 'config' or 'base_config' that is basically a dictionary to store
+        # all of the simulation parameters. If you want to save the details of the simulation, running config.save_shortform()
+        # will save you a nice text file with the details of the simulation. Nearly everything will require you to pass it a
+        # config in some form or another.
+        
+    SimulationState
+        # This handles all of the parts of the simulation that change with time (positions/energies/etc). It also includes some
+        # functions that let you minimize the energy of the system (minimize_forces and minimize_energy). These are useful
+        # when finding stable points of the system as starting points for quenches.
+        
+    SimulationRunner
+        # Now on to running the simulation. You'll take a SimulationConfig object and a SimulationState object, pass that to
+        # SimulationRunner and it'll update SimulationState as it runs the simulation.
+        
+    SimulationIO
+        # This just includes some helpful functions for loading data like trajectories or positions into SimulationState, or
+        # or saving the current state to file.
+        
+        
+    SimulationVisualizer
+        # To view things like trajectories, density maps, and positions, just make a visualizer = SimulationVisualizer() object
+        # and then call something like visualizer.plot_positions(state) where you pass the state to the system.
+    
+    AnimationMaker
+        #
+'''
+
 
 import numpy as np
 import os
@@ -15,6 +49,8 @@ from time import time
 import glob
 import re  # Needed to extract gamma values
 from concurrent.futures import ProcessPoolExecutor
+import subprocess
+from scipy.optimize import minimize, root
 
 @dataclass
 class SimulationConfig:
@@ -22,13 +58,31 @@ class SimulationConfig:
     w: float
     g: float
     m: float
-    T: float
+    T_mK: float
     dt: float
     num_steps: int
     damping: bool = False
     damping_parameter: float = 1.0
     langevin_temperature: bool = False
     lasers: Optional[List[Laser]] = None
+        
+    
+    def get_shortform(self) -> str:
+        """Return a short string summary of the simulation configuration."""
+        summary = (
+            f"N = {self.N}, w = {self.w}, g = {self.g}, m = {self.m} amu, T = {self.T_mK} mK, dt = {self.dt} μs, "
+            f"time={self.dt * self.num_steps} μs, "
+            f"num_steps={self.num_steps}, damping={self.damping}, "
+            f"damping_parameter={self.damping_parameter}, "
+            f"langevin_temperature={self.langevin_temperature}, "
+            f"lasers={len(self.lasers) if self.lasers else 0}"
+        )
+        return summary
+
+    def save_shortform(self, filename: str = "-simulation_details.txt") -> None:
+        """Save the shortform summary to a text file."""
+        with open(filename, 'w') as f:
+            f.write(self.get_shortform())
 
 class SimulationState:
     def __init__(self, config: SimulationConfig):
@@ -51,7 +105,7 @@ class SimulationState:
             angles = np.linspace(0, 2 * np.pi, self.N, endpoint=False)
             radius = utility.base_radius(self.N, self.config.m, self.config.w, units.k)
             self.positions = radius * np.column_stack((np.cos(angles), np.sin(angles)))
-        else:
+        elif method == 'random':
             radius = utility.base_radius(self.N, self.config.m, self.config.w, units.k)
             positions = []
             while len(positions) < self.N:
@@ -60,14 +114,94 @@ class SimulationState:
                 inside = points[distances <= radius]
                 positions.extend(inside.tolist())
             self.positions = np.array(positions[:self.N])
+        
+        
+        else:
+            raise ValueError(f"No initialization method known by name '{method}'")
+
         self.initial_positions = self.positions.copy()
         self.initialized = True
+        
 
     def reset(self):
         self.positions = self.initial_positions.copy()
         self.velocities = np.zeros_like(self.velocities)
         self.trajectory = np.zeros_like(self.trajectory)
         self.velocity_trajectory = np.zeros_like(self.velocity_trajectory)
+        
+    def temperature_from_velocities(self):
+        return 0.5 * self.config.m * np.sum(self.velocities ** 2) / units.kB
+    
+    def minimize_energy(self):
+        """
+        Minimize the potential energy of the system and update self.positions.
+        Uses scipy.optimize.minimize with Powell method.
+        """
+        from scipy.optimize import minimize
+
+        def potential_energy(flat_pos):
+            positions = flat_pos.reshape((self.N, 2))
+            x, y = positions[:, 0], positions[:, 1]
+            trap_energy = 0.5 * self.config.m * self.config.w**2 * np.sum(x**2 + (self.config.g * y)**2)
+            coulomb_term = 0.0
+            for i in range(self.N):
+                for j in range(i + 1, self.N):
+                    r = np.linalg.norm(positions[i] - positions[j]) + 1e-8  # Avoid div by 0
+                    coulomb_term += 1 / r
+            return trap_energy + units.k * coulomb_term
+
+        print(f"🔍 Minimizing potential energy for N = {self.N} ions...")
+        initial_flat = self.positions.flatten()
+        result = minimize(potential_energy, initial_flat, method='Powell')
+
+        if not result.success:
+            raise RuntimeError(f"Minimization failed: {result.message}")
+
+        self.positions = result.x.reshape((self.N, 2))
+        self.initial_positions = self.positions.copy()
+        self.initialized = True
+        print(f"✅ Minimization complete. Final energy: {result.fun:.6f}")
+        
+    def minimize_forces(self):
+        """
+        Find positions where net forces on all particles vanish.
+        Solves F = 0 using scipy.optimize.root and updates self.positions.
+        """
+
+        def force_equations(flat_pos):
+            positions = flat_pos.reshape((self.N, 2))
+            forces = np.zeros_like(positions)
+
+            wx2 = self.config.w ** 2
+            wy2 = (self.config.w * self.config.g) ** 2
+            m = self.config.m
+
+            # Harmonic trap
+            forces -= m * positions * np.array([wx2, wy2])
+
+            # Coulomb forces
+            for i in range(self.N):
+                for j in range(self.N):
+                    if i == j:
+                        continue
+                    r_vec = positions[i] - positions[j]
+                    r = np.linalg.norm(r_vec) + 1e-8  # avoid div by zero
+                    forces[i] += units.k * r_vec / r**3
+
+            return forces.flatten()
+
+        print(f"🔍 Solving for force balance (∑F = 0) for N = {self.N} ions...")
+        initial_flat = self.positions.flatten()
+        result = root(force_equations, initial_flat, method='hybr')
+
+        if not result.success:
+            raise RuntimeError(f"Force minimization failed: {result.message}")
+
+        self.positions = result.x.reshape((self.N, 2))
+        self.initial_positions = self.positions.copy()
+        self.initialized = True
+        print("✅ Force minimization complete. All net forces are near zero.")
+
 
 
 class SimulationRunner:
@@ -77,7 +211,7 @@ class SimulationRunner:
         self.N = config.N
         self.m = config.m
         self.dt = config.dt
-        self.T = config.T / 0.120272422607
+        self.T = config.T_mK / 0.120272422607
         self.w = config.w
         self.g = config.g
         self.wx2 = self.w**2
@@ -105,6 +239,7 @@ class SimulationRunner:
         print(f"Running with isotropy (γ) = {self.config.g:.4f} for {self.config.num_steps * self.config.dt} μs")
         if not self.state.initialized:
             self.state.initialize_positions()
+            print("Initializing random positions")
         self.state.velocities = self.get_thermal_velocities()
 
         for step in range(self.config.num_steps):
@@ -120,11 +255,12 @@ class SimulationRunner:
                 i = step // grainyness
                 ke = self.get_kinetic_energy()
                 pe = self.get_potential_energy()
-                self.state.temperatures[i] = self.get_temperature(ke)
-                self.state.kinetic_energies[i] = ke
-                self.state.potential_energies[i] = pe
-                self.state.total_energies[i] = ke + pe
-                self.state.times[i] = step * self.dt
+                if i < len(self.state.temperatures):
+                    self.state.temperatures[i] = self.get_temperature(ke)
+                    self.state.kinetic_energies[i] = ke
+                    self.state.potential_energies[i] = pe
+                    self.state.total_energies[i] = ke + pe
+                    self.state.times[i] = step * self.dt
 
     def get_thermal_velocities(self):
         v = np.random.randn(self.N, 2)
@@ -152,6 +288,11 @@ class SimulationRunner:
 
 class SimulationIO:
     @staticmethod
+    def save_positions(positions, filename):
+        with open(filename, 'w') as f:
+            json.dump(positions.tolist(), f)
+    
+    @staticmethod
     def save_trajectory(trajectory, filename):
         with open(filename, 'w') as f:
             json.dump(trajectory.tolist(), f)
@@ -175,82 +316,16 @@ class SimulationIO:
 ###########################################################################################
 
 
-    
-def run_quench_series_parallel(config: SimulationConfig, loadfile: str, output_dir: str,
-                               g_start: float, g_end: float, g_step: int, num_workers: int = 4):
-    os.makedirs(output_dir, exist_ok=True)
-    gammas = np.linspace(g_start, g_end, g_step)
-    base_config_dict = asdict(config)
-
-    with ProcessPoolExecutor(max_workers=num_workers) as executor:
-        futures = []
-        for gamma in gammas:
-            futures.append(executor.submit(run_single_quench, gamma, base_config_dict, loadfile, output_dir))
-        for f in futures:
-            f.result()  # wait and raise errors if any
-
-    print("All quench simulations completed.")
-
-
-# class QuenchWorkflow:
-#     def __init__(self, config: SimulationConfig, loadfile: str, output_dir: str):
-#         self.base_config = config
-#         self.loadfile = loadfile
-#         self.output_dir = output_dir
-#         os.makedirs(output_dir, exist_ok=True)
-        
-
-#     def run_quench_series(self, g_start, g_end, g_step):
-#         gammas = np.linspace(g_start, g_end, g_step)
-
-#         for gamma in gammas:
-#             out_file = f"{self.output_dir}/{self.base_config.N}_{gamma:.14f}_traj_{self.base_config.num_steps}_steps.json"
-#             if os.path.exists(out_file):
-#                 print(f"Skipping gamma = {gamma:.8f}, file exists.")
-#                 continue
-                
-#             print(f"Quenching to isotropy (γ) = {gamma:.8f}")
-
-#             # Create new config and state
-#             config = SimulationConfig(**{**asdict(self.base_config), 'g': gamma, 'w': self.base_config.w})
-#             state = SimulationState(config)
-
-#             # Load same initial structure every time
-#             state.positions = SimulationIO.load_positions(self.loadfile)
-#             state.initial_positions = state.positions.copy()
-#             state.initialized = True
-#             state.reset()  # randomize velocities
-
-#             # === Quench trap frequency to conserve potential energy ===
-#             x_vars = state.positions[:, 0]
-#             y_vars = state.positions[:, 1]
-
-#             initial_g = self.base_config.g
-#             initial_w = self.base_config.w
-#             m = self.base_config.m
-
-#             initial_PE = 0.5 * m * initial_w**2 * np.sum(x_vars**2 + (initial_g * y_vars)**2)
-#             new_PE = 0.5 * m * initial_w**2 * np.sum(x_vars**2 + (gamma * y_vars)**2)
-
-#             new_w = initial_w * np.sqrt(initial_PE / new_PE)
-#             print(f"Adjusted w for energy conservation: {initial_w:.4f} → {new_w:.4f}")
-#             state.w = new_w
-#             state.g = gamma
-#             state.config.w = new_w
-#             state.config.g = gamma
-
-#             # Run and save
-#             runner = SimulationRunner(state.config, state)
-#             runner.run()
-#             SimulationIO.save_trajectory(state.trajectory, out_file)
-        
-#         print("Done!")
 
 
 # Visualization utilities for SimulationState
 class SimulationVisualizer:
-    @staticmethod
-    def plot_positions(state: SimulationState, square=True, save=False, filename=None):
+    
+    def __init__(self, save = False, filename = None):
+        self.save = save
+        self.filename = filename
+        
+    def plot_positions(self, state: SimulationState, square=True):
         x = state.positions[:, 0]
         y = state.positions[:, 1]
 
@@ -266,14 +341,16 @@ class SimulationVisualizer:
         plt.grid(True)
         if square:
             plt.gca().set_aspect('equal', adjustable='box')
-        if save:
-            if filename is None:
+        if self.save:
+            if self.filename is None:
                 filename = f"{state.N}_positions_plot.png"
+            else:
+                filename = self.filename
+                
             plt.savefig(filename)
         plt.show()
 
-    @staticmethod
-    def plot_trajectory(state: SimulationState, square=True):
+    def plot_trajectory(self, state: SimulationState, square=True):
         plt.figure(figsize=(8, 8))
         for i in range(state.N):
             plt.plot(state.trajectory[:, i, 0], state.trajectory[:, i, 1])
@@ -286,10 +363,18 @@ class SimulationVisualizer:
         plt.grid()
         if square:
             plt.gca().set_aspect('equal', adjustable='box')
+        
+        if self.save:
+            if self.filename is None:
+                filename = f"{state.N}_trajectory_plot.png"
+            else:
+                filename = self.filename
+                
+            plt.savefig(filename)
+            
         plt.show()
 
-    @staticmethod
-    def plot_density_map(state: SimulationState, bins=100, cmap='Greys', save=False, filename=None):
+    def plot_density_map(self, state: SimulationState, bins=100, cmap='Greys'):
         positions = state.trajectory.reshape(-1, 2)
         x = positions[:, 0]
         y = positions[:, 1]
@@ -307,16 +392,20 @@ class SimulationVisualizer:
         ax.set_title('Ion Density Map')
         ax.set_aspect('equal')
         fig.colorbar(im, ax=ax, label='Normalized density')
-        if save:
-            if filename is None:
-                filename = "density_map.png"
+        
+        if self.save:
+            if self.filename is None:
+                filename = f"{state.N}_density_plot.png"
+                
+            else:
+                filename = self.filename
+                
             plt.savefig(filename)
-            plt.close(fig)
+
         else:
             plt.show()
-
-    @staticmethod
-    def plot_energy(state: SimulationState):
+               
+    def plot_energy(self, state: SimulationState):
         t = state.times
         plt.figure(figsize=(10, 6))
         plt.plot(t, state.kinetic_energies, label="Kinetic Energy")
@@ -328,10 +417,18 @@ class SimulationVisualizer:
         plt.legend()
         plt.grid(True)
         plt.tight_layout()
+        
+        if self.save:
+            if self.filename is None:
+                filename = f"{state.N}_energy_plot.png"
+            else:
+                filename = self.filename
+                
+            plt.savefig(filename)
+            
         plt.show()
         
-    @staticmethod
-    def plot_temperature(state: SimulationState):
+    def plot_temperature(self, state: SimulationState):
         t = state.times
         temps_mK = units.theta_to_mK(state.temperatures)
         plt.figure(figsize=(10, 4))
@@ -342,8 +439,16 @@ class SimulationVisualizer:
         plt.grid(True)
         plt.legend()
         plt.tight_layout()
+        
+        if self.save:
+            if self.filename is None:
+                filename = f"{state.N}_temperature_plot.png"
+            else:
+                filename = self.filename
+                
+            plt.savefig(filename)
+            
         plt.show()
-
         
 class AnimationMaker:
     @staticmethod
@@ -375,8 +480,17 @@ class AnimationMaker:
                 continue
 
             print(f"Processing {traj_file}")
-            with open(traj_file, 'r') as f:
-                traj = np.array(json.load(f))
+            try:
+                with open(traj_file, 'r') as f:
+                    traj = np.array(json.load(f))
+            except json.JSONDecodeError as e:
+                print(f"JSON decode error in file: {traj_file}")
+                print(e)
+                continue
+            except FileNotFoundError as e:
+                print(f"File not found: {traj_file}")
+                print(e)
+                continue
 
             # Clone base config and override gamma + steps
             config = SimulationConfig(**{**asdict(base_config), 'g': gamma, 'num_steps': traj.shape[0]})
@@ -435,8 +549,17 @@ class AnimationMaker:
             gamma = float(match.group(1)) if match else 0.0
             outfile = os.path.join(output_dir, f"temperature_plot_{gamma:.6f}.png")
 
-            with open(traj_file, 'r') as f:
-                traj = np.array(json.load(f))
+            try:
+                with open(traj_file, 'r') as f:
+                    traj = np.array(json.load(f))
+            except json.JSONDecodeError as e:
+                print(f"JSON decode error in file: {traj_file}")
+                print(e)
+                continue
+            except FileNotFoundError as e:
+                print(f"File not found: {traj_file}")
+                print(e)
+                continue
 
             if traj.ndim != 3 or traj.shape[1:] != (base_config.N, 2):
                 print(f"Skipping {traj_file}, unexpected shape {traj.shape}")
@@ -460,14 +583,46 @@ class AnimationMaker:
 
 
     @staticmethod
-    def make_gif_or_mp4_from_images(image_folder: str, output_file: str, fps: int = 4):
+    def make_gif_or_mp4_from_images(image_folder: str, output_file: str, fps: int = 4, reverse: bool = True):
         images = sorted(glob.glob(os.path.join(image_folder, "*.png")))
-        frames = [imageio.imread(img) for img in images]
+        if not images:
+            raise FileNotFoundError(f"No PNG files found in {image_folder}")
+
+        if reverse:
+            images = images[::-1]
+
         ext = os.path.splitext(output_file)[-1].lower()
+
         if ext == ".gif":
+            frames = [imageio.imread(img) for img in images]
             imageio.mimsave(output_file, frames, duration=1 / fps)
+
         elif ext == ".mp4":
-            imageio.mimsave(output_file, frames, fps=fps, codec='libx264')
+            frames = [imageio.imread(img) for img in images]
+            try:
+                imageio.mimsave(output_file, frames, fps=fps, codec='libx264')
+                print(f"MP4 saved via imageio: {output_file}")
+            except Exception as e:
+                print(f"[Warning] imageio failed to save MP4: {e}")
+                print("[Fallback] Trying subprocess + ffmpeg...")
+                # Fallback to FFmpeg
+                output_dir = os.path.dirname(output_file)
+                output_name = os.path.basename(output_file)
+                os.makedirs(output_dir, exist_ok=True)
+                cmd = [
+                    "/exports/eddie/scratch/s2142953/miniconda3/bin/ffmpeg",
+                    "-y",
+                    "-framerate", str(fps),
+                    "-pattern_type", "glob",
+                    "-i", os.path.join(image_folder, "*.png"),
+                    "-c:v", "libx264",
+                    "-pix_fmt", "yuv420p",
+                    "--",
+                    output_name
+                ]
+                subprocess.run(cmd, cwd=output_dir, check=True)
+                print(f"MP4 saved via ffmpeg fallback: {output_file}")
+
         else:
             raise ValueError("Output must be .gif or .mp4")
             

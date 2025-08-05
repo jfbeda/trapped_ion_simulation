@@ -1,3 +1,19 @@
+# Written 2025-07-14 by Jack Beda (jack.beda.ca).
+###############################################################
+
+"""
+This contains only one class, Laser, that handles the dynamics of the Doppler cooling lasers on the system.
+
+Remember that all quantities are expressed in natural units (see natural_units.py for more explanations).
+
+The relevant theory can be found in Atomic Physics by Christopher Foot Chapter 9. The relevant equation that governs the
+effective cooling force on the ions is given in equation 9.4, and is implemented in compute_laser_force_numba (and used in 
+Laser.get_force()
+
+The laser class also includes some plots that animate and display the force curve (i.e. force on ion vs ion velocity)
+
+"""
+
 import numpy as np
 import natural_units as units 
 import matplotlib.pyplot as plt
@@ -6,7 +22,7 @@ import matplotlib.animation as animation
 import numpy as np
 import natural_units as units 
 import matplotlib.pyplot as plt
-import numba
+import numba # Does some speedups
 import matplotlib.animation as animation
 
 

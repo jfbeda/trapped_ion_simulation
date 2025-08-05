@@ -1,6 +1,11 @@
-# Written 2025-07-14
+# Written 2025-07-14 by Jack Beda (jack.beda.ca).
+###############################################################
 
-import math
+"""
+Mainly this contains small self contained functions for exchanging data types to one another
+"""
+
+import numpy as np
 
 def positions_to_xy(positions):
     # Takes [[x1,y1],[x2,y2],[x3,y3]]
@@ -38,7 +43,8 @@ def vars_to_positions(vars):
     return xy_to_positions(x, y)
 
 def vars_to_xy(vars):
-    
+    # Takes [x1,x2,x3,y1,y2,y3]
+    # Returns [x1, x2, x3], [y1, y2, y3]
     return positions_to_xy(vars_to_positions(vars))
 
 def positions_to_flattened_positions(positions):
@@ -46,8 +52,12 @@ def positions_to_flattened_positions(positions):
     # Returns [x1, y1, x2, y2, x3, y3]
     return positions.flatten()   
 
-
 def objective_function(vars, N, g, m = 1., w = 1., k = 1.):
+    """
+    This is just the energy of the system, I think this is outdated and I don't use it anymore (2025-07-25) but would
+    need to double check.
+    """
+    
     x_vars = vars[:N]  # First N variables are y_i
     y_vars = vars[N:]   # Next N variables are z_i
     
@@ -66,9 +76,21 @@ def objective_function(vars, N, g, m = 1., w = 1., k = 1.):
                 term2 += 1 / distance
 
     return term1 + term2*k
-
    
 def minimum_matching_distance(A, B):
+    """
+    This determines how close two sets of positions A and B are to each other. For example, if you have one ion configuration
+    with positions A and another ion configuration with positions B, we are interested in how 'similar' the two are. We can't 
+    just compute the differences in positions and find that average, because for example, maybe the first ion in list A
+    overlaps perfectly with the third ion from list B, but the code will tell us that A[0] is very far from B[0]. For this
+    we need to compute the distances between positions for all possible pairings of A positions with B positions, which is a
+    problem called the assignment problem. This function does that basically.
+    
+    Not super useful, but occasionally we want to compare how close two positions are. A while back I wanted to see if during
+    simulation dynamics we ever passed through metastable states, but that never turned out to be particularly useful.
+    """
+    
+    
     # Compute the pairwise distance matrix
     dists = np.linalg.norm(A[:, np.newaxis, :] - B[np.newaxis, :, :], axis=2)  # shape (N, N)
     
@@ -124,11 +146,16 @@ def fixed_point_equation(position_vectors_flat, g, w, k, m):
         return equations.flatten()
 
 def base_radius(N, m, w, k):
-    # Returns the radius r_star such that equally spaced points are in equilibrium at this radius
+    """
+    Returns the radius r_star such that equally spaced points are in equilibrium at this radius for gamma = 1. This is a rare
+    example of where the dynamics is solveable. See latex document for derivation (I hope whoever gave you the code gave you
+    that document as well). It's useful just as a baseline guess of how large the crystal is going to be. Certainly the ion
+    crystal is never much larger than that.
+    """
     
     if N <= 1:
         raise ValueError("N must be greater than 1.")
     
-    summation = sum(1 / math.sin(math.pi * q / N) for q in range(1, N))
+    summation = sum(1 / np.sin(np.pi * q / N) for q in range(1, N))
     r_star = (0.25 * summation/(m*(w**2)/k)) ** (1/3)
     return r_star

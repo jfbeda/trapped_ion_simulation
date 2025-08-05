@@ -1,10 +1,22 @@
-# Written 2025-07-14
+# Written 2025-07-14 by Jack Beda (jack.beda.ca).
+###############################################################
 
-hbar = 0.063507799295889 # (amu)(μm2)(μs−1)
-kB = 1. # 1 in natural units
-k = 1.38935378902e5 # Coulomb constant in units of e²·μm³·μs⁻²·amu⁻¹
-epsilon_0 = 5.7276607423e-7 # amu·μs² / (μm³·e²)
-electron_charge = 1. # 1 in natural units
+"""
+See the function units_help() for most explanations. Our simulation is based off of a particular set of base units described
+there, and all quantities are expressed in these derived units unless said otherwise.
+
+For example, we call the unit of energy in our system κ, which is 1 amu·μm²/μs². The unit of temperature is called 
+θ and is equal to 1 κ / k_B. For example, if you see in the code something labeled temperature, this will be stored in units of 
+θ. Occasionally, when we desire things in other units, we will specify precicely. For example, temperature_mK will contain a 
+quantity measured in milli Kelvin. 
+
+"""
+
+hbar = 0.063507799295889 # Reduced Plank's constant(in units of amu·μm²·μs⁻¹)
+kB = 1. # Boltzmann constant (in units of kB)
+k = 1.38935378902e5 # Coulomb constant (in units of e²·μm³·μs⁻²·amu⁻¹)
+epsilon_0 = 5.7276607423e-7 # Vacuum permitivity (in units of amu·μs²·μm⁻³·e⁻²)
+electron_charge = 1. # Electron charge (in units of e)
 
 def theta_to_mK(theta):
     return theta * 0.120272422607
@@ -33,19 +45,19 @@ def units_help():
         - Time: 1 microsecond (μs)
         - Mass: 1 atomic mass unit (amu)
         - Charge: 1 elementary charge (e)
-        - Boltzmann constant: k_B = 1
+        - Boltzmann constant: kB = 1 kB
 
         Derived units:
-        - Energy (κ):     1 amu·μm²/μs² ≈ 1.66054 × 10⁻²⁷ J ≈ 10.36 neV
-        - Temperature (θ): κ / k_B = 0.00012027 K ≈ 0.12027 mK
-        - Frequency:       1 MHz (μs⁻¹)
-        - Force:           1 amu·μm/μs² ≈ 1.66054 × 10⁻²¹ N
-        - Vacuum permittivity:
-          ε₀ ≈ 5.7276607423 × 10⁻⁷ amu·μs² / (μm³·e²)
-        - Coulomb constant:
-          k ≈ 1 / (4π ε₀) ≈ 1.389 × 10⁵ e²·μm³ / (amu·μs²)
+        - Energy (κ):               κ = amu·μm²·μs⁻² ≈ 1.66054 × 10⁻²⁷ J ≈ 10.362537043 neV
+        - Temperature (θ):          θ = κ·kB⁻¹ ≈ 0.12027 mK
+        - Frequency:                MHz (μs⁻¹)
+        - Force:                    amu·μm·μs⁻² ≈ 1.66054 × 10⁻²¹ N
+        
+        Physical constants:
+        - Vacuum permittivity:      ε₀ ≈ 5.7276607423 × 10⁻⁷ amu·μs²·μm⁻³·e⁻²
+        - Coulomb constant:         k = 1 / (4π ε₀) ≈ 1.38935378902e5 × 10⁵ e²·μm³·μs⁻²·amu⁻¹
+        - Reduced Plank's constant: hbar = 0.063507799295889 amu·μm²·μs⁻¹
 
         Notes:
         - All physical quantities are expressed in these natural units.
-        - Temperatures, energies, and forces are dimensionless in code but represent physical values via these units.
         """
