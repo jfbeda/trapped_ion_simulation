@@ -115,7 +115,7 @@ def run_quench_series(config, loadfile, output_dir,
     print("All quench simulations completed.")
 
 
-def generate_density_map_images_from_quench_folder(traj_folder: str, output_dir: str, base_config: SimulationConfig, num_workers = None, square = False, extent = None):
+def generate_density_map_images_from_quench_folder(traj_folder: str, output_dir: str, base_config: SimulationConfig, num_workers = None, square = False, extent = None, extension = "png"):
     print(f"Beginning to parralel process trajectory files")
     os.makedirs(output_dir, exist_ok=True)
 
@@ -149,7 +149,8 @@ def generate_density_map_images_from_quench_folder(traj_folder: str, output_dir:
                 y_min,
                 y_max,
                 index,
-                square
+                square,
+                extension
             ))
 
         # Optionally block until all are done
@@ -167,7 +168,8 @@ def generate_rolling_average_density_map_images_from_quench_folder(
     animate: bool = False,
     num_workers: int = None,
     square: bool = False,
-    extent = None
+    extent = None,
+    extension: str = "png"
 ):
 
     print("🔁 Beginning parallel rolling-average density map generation")
@@ -211,6 +213,7 @@ def generate_rolling_average_density_map_images_from_quench_folder(
                     y_max,
                     index,
                     square,
+                    extension,
                     time_per_image,
                     overlapping_time,
                     full_histogram,
@@ -230,7 +233,8 @@ def generate_temperature_plots_from_quench_folder(
     output_dir,
     base_config,
     grainyness=100,
-    num_workers=None
+    num_workers=None,
+    extension = "png"
 ):
     print("🔁 Beginning parallel temperature plot generation")
     os.makedirs(output_dir, exist_ok=True)
@@ -250,7 +254,8 @@ def generate_temperature_plots_from_quench_folder(
                 traj_file,
                 output_dir,
                 base_config_dict,
-                grainyness
+                grainyness,
+                extension
             )
             for traj_file in traj_files
         ]

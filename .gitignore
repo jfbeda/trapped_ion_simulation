@@ -4,4 +4,5 @@ quench_folder/
 animation_folder/
 temperature_folder/
 animation_output/
+rolling_average_output/
 .DS_Store

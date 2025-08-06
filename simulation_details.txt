@@ -1,1 +1,1 @@
-N = 2, w = 1.0, g = 0.1, m = 137.327 amu, T = 0 mK, dt = 0.001 μs, time=10.0 μs, num_steps=10000, damping=False, damping_parameter=1.0, langevin_temperature=False, lasers=1
+N = 6, w = 1.0, g = 1, m = 137.327 amu, T = 0 mK, dt = 0.001 μs, time=100.0 μs, num_steps=100000, damping=False, damping_parameter=1.0, langevin_temperature=False, lasers=1

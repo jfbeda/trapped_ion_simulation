@@ -48,13 +48,14 @@ def process_single_density_map(
     y_min: float,
     y_max: float,
     index: int,
-    square: bool
+    square: bool,
+    extension: str
 ):
 
 
     match = re.search(r"_(\d+\.\d+)_traj", os.path.basename(traj_file))
     gamma = float(match.group(1)) if match else 0.0
-    filename = os.path.join(output_dir, f"frame_{index:03d}_gamma_{gamma:.6f}.png")
+    filename = os.path.join(output_dir, f"frame_{index:03d}_gamma_{gamma:.6f}.{extension}")
 
     if os.path.exists(filename):
         print(f"Skipping frame {index:03d} (γ = {gamma:.6f}), image already exists.")
@@ -104,10 +105,11 @@ def process_single_rolling_average_density_map(
     y_max: float,
     index: int,
     square: bool,
+    extension: str,
     time_per_image: float = 100,
     overlapping_time: float = 0,
     full_histogram: bool = True,
-    animate: bool = False
+    animate: bool = False,
 ):
 
     match = re.search(r"_(\d+\.\d+)_traj", os.path.basename(traj_file))
@@ -136,7 +138,7 @@ def process_single_rolling_average_density_map(
     os.makedirs(output_dir, exist_ok=True)
 
     for i, start in enumerate(range(0, num_steps - window_size + 1, stride)):
-        filename = os.path.join(output_dir, f"rolling_frame_{index:03d}_window_{i:03d}_gamma_{gamma:.6f}.png")
+        filename = os.path.join(output_dir, f"rolling_frame_{index:03d}_window_{i:03d}_gamma_{gamma:.6f}.{extension}")
         if os.path.exists(filename):
             print(f"Skipping {filename}, already exists")
             continue
@@ -149,18 +151,19 @@ def process_single_rolling_average_density_map(
         print(f"Saved {filename}")
 
     if full_histogram:
-        full_filename = os.path.join(output_dir, f"rolling_frame_{index:03d}_FULL_gamma_{gamma:.6f}.png")
+        full_filename = os.path.join(output_dir, f"rolling_frame_{index:03d}_FULL_gamma_{gamma:.6f}.{extension}")
         if os.path.exists(full_filename):
             print(f"Skipping {full_filename}, already exists")
         
         else:
             hist, extent = histogram_from_trajectory_slice(traj, x_min, x_max, y_min, y_max)
-            fig = plot_density_map_from_histogram(hist, extent, gamma, title_suffix="(Full)")
+            fig = plot_density_map_from_histogram(hist, extent, gamma, square, title_suffix="(Full)")
             fig.savefig(full_filename)
             plt.close(fig)
             print(f"Saved full density map: {full_filename}")
 
     if animate:
+        assert extension != "pdf", "You can't animate with extension pdf!! It must be png"
         try:
             anim_output_path = os.path.join(output_dir, f"rolling_animation_{index:03d}_gamma_{gamma:.6f}.mp4")
             if os.path.exists(anim_output_path):
@@ -234,11 +237,12 @@ def process_single_temperature_plot(
     traj_file: str,
     output_dir: str,
     base_config_dict: dict,
-    grainyness: int
+    grainyness: int,
+    extension: str
 ):
     match = re.search(r"_(\d+\.\d+)_traj", os.path.basename(traj_file))
     gamma = float(match.group(1)) if match else 0.0
-    outfile = os.path.join(output_dir, f"temperature_plot_{gamma:.6f}.png")
+    outfile = os.path.join(output_dir, f"temperature_plot_{gamma:.6f}.{extension}")
 
     if os.path.exists(outfile):
         print(f"Skipping temperature plot for γ = {gamma:.6f}, image already exists.")

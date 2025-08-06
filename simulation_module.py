@@ -79,7 +79,7 @@ class SimulationConfig:
         )
         return summary
 
-    def save_shortform(self, filename: str = "-simulation_details.txt") -> None:
+    def save_shortform(self, filename: str = "simulation_details.txt") -> None:
         """Save the shortform summary to a text file."""
         with open(filename, 'w') as f:
             f.write(self.get_shortform())
@@ -586,7 +586,7 @@ class AnimationMaker:
     def make_gif_or_mp4_from_images(image_folder: str, output_file: str, fps: int = 4, reverse: bool = True):
         images = sorted(glob.glob(os.path.join(image_folder, "*.png")))
         if not images:
-            raise FileNotFoundError(f"No PNG files found in {image_folder}")
+            raise FileNotFoundError(f"No PNG files found in {image_folder}. Maybe you have pdf images instead? This function cannot handle pdf images as input")
 
         if reverse:
             images = images[::-1]
