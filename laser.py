@@ -183,6 +183,8 @@ class Laser:
         
 @numba.njit#(fastmath = True)
 def compute_laser_force_numba(velocities, k_vec, saturation, detuning, Gamma, hbar):
+    # Christopher Foot equation 9.4
+    
     N = velocities.shape[0]
     forces = np.zeros_like(velocities)
 

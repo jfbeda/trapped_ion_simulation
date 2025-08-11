@@ -54,7 +54,8 @@ def run_convergence_test(base_config: SimulationConfig, loadfile: str, output_di
                          time_steps: list[float], run_time_us: float, num_workers: int = 4):
     os.makedirs(output_dir, exist_ok=True)
     base_config_dict = asdict(base_config)
-    positions = SimulationIO.load_positions(loadfile).tolist()  # Make JSON-safe for subprocesses
+    IO = SimulationIO()
+    positions = IO.load_positions(loadfile).tolist()  # Make JSON-safe for subprocesses
 
     print(f"🔁 Running {run_time_us} μs convergence test for various time steps...")
     results = []
@@ -101,7 +102,8 @@ def plot_convergence_results(results, output_dir):
 
 def run_quench_series(config, loadfile, output_dir,
                                g_start, g_end, g_step, num_workers = 4):
-    os.makedirs(output_dir, exist_ok=True)
+    full_output_dir = os.path.join(config.output_path,output_dir)
+    os.makedirs(full_output_dir, exist_ok = True)
     gammas = np.linspace(g_start, g_end, g_step)
     base_config_dict = asdict(config)
     print("Beginning to parralel quench")
@@ -117,10 +119,11 @@ def run_quench_series(config, loadfile, output_dir,
 
 def generate_density_map_images_from_quench_folder(traj_folder: str, output_dir: str, base_config: SimulationConfig, num_workers = None, square = False, extent = None, extension = "png"):
     print(f"Beginning to parralel process trajectory files")
-    os.makedirs(output_dir, exist_ok=True)
-
+    os.makedirs(os.path.join(base_config.output_path, output_dir), exist_ok = True)
+    
+    output_folder = base_config.output_path
     traj_files = sorted(
-        glob.glob(os.path.join(traj_folder, "*.json")),
+        glob.glob(os.path.join(output_folder,traj_folder, "*.json")),
         key=lambda f: float(re.search(r"_(\d+\.\d+)_traj", os.path.basename(f)).group(1)),
         reverse=True
     )
@@ -173,10 +176,10 @@ def generate_rolling_average_density_map_images_from_quench_folder(
 ):
 
     print("🔁 Beginning parallel rolling-average density map generation")
-    os.makedirs(output_dir, exist_ok=True)
 
+    output_folder = base_config.output_path
     traj_files = sorted(
-        glob.glob(os.path.join(traj_folder, "*.json")),
+        glob.glob(os.path.join(output_folder, traj_folder, "*.json")),
         key=lambda f: float(re.search(r"_(\d+\.\d+)_traj", os.path.basename(f)).group(1)),
         reverse=True
     )
@@ -199,7 +202,6 @@ def generate_rolling_average_density_map_images_from_quench_folder(
         for index, traj_file in enumerate(traj_files):
             traj_basename = os.path.splitext(os.path.basename(traj_file))[0]
             traj_output_dir = os.path.join(output_dir, traj_basename)
-            os.makedirs(traj_output_dir, exist_ok=True)
 
             futures.append(
                 executor.submit(
@@ -232,22 +234,22 @@ def generate_temperature_plots_from_quench_folder(
     traj_folder,
     output_dir,
     base_config,
-    grainyness=100,
-    num_workers=None,
+    grainyness = 100,
+    num_workers = None,
     extension = "png"
 ):
     print("🔁 Beginning parallel temperature plot generation")
-    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(os.path.join(base_config.output_path, output_dir), exist_ok=True)
 
     traj_files = sorted(
-        glob.glob(os.path.join(traj_folder, "*.json")),
-        key=lambda f: float(re.search(r"_(\d+\.\d+)_traj", os.path.basename(f)).group(1)),
+        glob.glob(os.path.join(base_config.output_path, traj_folder, "*.json")),
+        key = lambda f: float(re.search(r"_(\d+\.\d+)_traj", os.path.basename(f)).group(1)),
         reverse=True
     )
 
     base_config_dict = asdict(base_config)
 
-    with ProcessPoolExecutor(max_workers=num_workers) as executor:
+    with ProcessPoolExecutor(max_workers = num_workers) as executor:
         futures = [
             executor.submit(
                 process_single_temperature_plot,

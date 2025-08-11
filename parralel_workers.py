@@ -55,7 +55,7 @@ def process_single_density_map(
 
     match = re.search(r"_(\d+\.\d+)_traj", os.path.basename(traj_file))
     gamma = float(match.group(1)) if match else 0.0
-    filename = os.path.join(output_dir, f"frame_{index:03d}_gamma_{gamma:.6f}.{extension}")
+    filename = os.path.join(base_config_dict['output_path'],output_dir, f"frame_{index:03d}_gamma_{gamma:.6f}.{extension}")
 
     if os.path.exists(filename):
         print(f"Skipping frame {index:03d} (γ = {gamma:.6f}), image already exists.")
@@ -135,6 +135,7 @@ def process_single_rolling_average_density_map(
         print("Invalid parameters: overlapping_time must be less than time_per_image.")
         return
 
+    output_dir = os.path.join(base_config_dict['output_path'],output_dir)
     os.makedirs(output_dir, exist_ok=True)
 
     for i, start in enumerate(range(0, num_steps - window_size + 1, stride)):
@@ -192,7 +193,8 @@ def run_single_quench(gamma, base_config_dict, loadfile, output_dir):
     config = SimulationConfig(**{**base_config_dict, 'g': gamma})
     state = SimulationState(config)
 
-    state.positions = SimulationIO.load_positions(loadfile)
+    IO = SimulationIO(output_path = base_config_dict["output_path"], input_path = base_config_dict["input_path"])
+    state.positions = IO.load_positions(loadfile)
     state.initial_positions = state.positions.copy()
     state.initialized = True
     state.reset()
@@ -212,7 +214,7 @@ def run_single_quench(gamma, base_config_dict, loadfile, output_dir):
 
     runner = SimulationRunner(state.config, state)
     runner.run()
-    SimulationIO.save_trajectory(state.trajectory, out_file)
+    IO.save_trajectory(state.trajectory, out_file)
 #     return f"Written {out_file}"
 
 
@@ -240,10 +242,11 @@ def process_single_temperature_plot(
     grainyness: int,
     extension: str
 ):
+    
     match = re.search(r"_(\d+\.\d+)_traj", os.path.basename(traj_file))
     gamma = float(match.group(1)) if match else 0.0
-    outfile = os.path.join(output_dir, f"temperature_plot_{gamma:.6f}.{extension}")
-
+    outfile = os.path.join(base_config_dict['output_path'], os.path.join(output_dir, f"temperature_plot_{gamma:.6f}.{extension}"))
+    
     if os.path.exists(outfile):
         print(f"Skipping temperature plot for γ = {gamma:.6f}, image already exists.")
         return
