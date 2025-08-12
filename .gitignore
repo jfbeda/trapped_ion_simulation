@@ -1,8 +1,4 @@
 __pycache__/
 .ipynb_checkpoints/
-quench_folder/
-animation_folder/
-temperature_folder/
-animation_output/
-rolling_average_output/
+output/
 .DS_Store

@@ -80,10 +80,10 @@ class SimulationConfig:
             f"dt = {self.dt} μs,\n"
             f"time = {self.dt * self.num_steps} μs,\n"
             f"num_steps = {self.num_steps},\n"
-            f"damping={self.damping},\n"
+            f"damping = {self.damping},\n"
             f"damping_parameter = {self.damping_parameter},\n"
             f"langevin_temperature = {self.langevin_temperature},\n"
-            f"number of lasers={len(self.lasers) if self.lasers else 0}\n"
+            f"number of lasers = {len(self.lasers) if self.lasers else 0}\n"
         )
         
         for i,laser in enumerate(self.lasers):
@@ -174,7 +174,7 @@ class SimulationState:
 
         print(f"🔍 Minimizing potential energy for N = {self.N} ions...")
         initial_flat = self.positions.flatten()
-        result = minimize(potential_energy, initial_flat, method='Powell')
+        result = minimize(potential_energy, initial_flat, method = 'Powell')
 
         if not result.success:
             raise RuntimeError(f"Minimization failed: {result.message}")
@@ -182,7 +182,7 @@ class SimulationState:
         self.positions = result.x.reshape((self.N, 2))
         self.initial_positions = self.positions.copy()
         self.initialized = True
-        print(f"✅ Minimization complete. Final energy: {result.fun:.6f}")
+        print(f"✅ Minimization complete. Final energy: {result.fun:.4f} κ ")
         
     def minimize_forces(self):
         """
@@ -214,7 +214,7 @@ class SimulationState:
 
         print(f"🔍 Solving for force balance (∑F = 0) for N = {self.N} ions...")
         initial_flat = self.positions.flatten()
-        result = root(force_equations, initial_flat, method='hybr')
+        result = root(force_equations, initial_flat, method = 'hybr')
 
         if not result.success:
             raise RuntimeError(f"Force minimization failed: {result.message}")
@@ -222,7 +222,7 @@ class SimulationState:
         self.positions = result.x.reshape((self.N, 2))
         self.initial_positions = self.positions.copy()
         self.initialized = True
-        print("✅ Force minimization complete. All net forces are near zero.")
+        print(f"✅ Force minimization complete. RMS force: {np.linalg.norm(force_equations(self.positions.flatten()))} amu·μm·μs⁻²")
 
 
 
