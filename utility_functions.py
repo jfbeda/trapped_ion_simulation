@@ -52,6 +52,60 @@ def positions_to_flattened_positions(positions):
     # Returns [x1, y1, x2, y2, x3, y3]
     return positions.flatten()   
 
+
+###########################################
+# Zigzag functions
+###########################################
+
+
+def zigzagdefect(n, d):
+    """
+    Generate an alternating 1/-1 sequence of length n with a 'defect' starting at index d.
+    
+    The defect is created by duplicating the element at index d in the underlying 
+    perfect zigzag pattern (length n+1) and removing the next element.
+    
+    Args:
+        n (int): Length of the resulting list.
+        d (int): Index (0-based) where the defect begins, with d < n.
+    
+    Returns:
+        list[int]: Alternating sequence of 1 and -1 with a defect at index d.
+    
+    Examples:
+        >>> zigzagdefect(6, 3)
+        [1, -1, 1, 1, -1]
+        >>> zigzagdefect(8, 2)
+        [1, -1, -1, 1, -1, 1, -1, 1]
+        >>> zigzagdefect(7, 6)
+        [1, -1, 1, -1, 1, -1, -1]
+    """
+    return np.array([(1, -1)[i % 2] for i in range(n+1) if i != d])
+
+def zigzag(n):
+    """
+    Generate a repeating pattern of 1 and -1 of length n, 
+    starting with 1 and alternating each element.
+
+    Parameters
+    ----------
+    n : int
+        The number of elements in the pattern.
+
+    Returns
+    -------
+    list of int
+        A list where elements alternate between 1 and -1, 
+        beginning with 1.
+
+    Examples
+    --------
+    >>> zigzag(5)
+    [1, -1, 1, -1, 1]
+    """
+    return np.array([(1, -1)[i % 2] for i in range(n)])
+
+
 def objective_function(vars, N, g, m = 1., w = 1., k = 1.):
     """
     This is just the energy of the system, I think this is outdated and I don't use it anymore (2025-07-25) but would

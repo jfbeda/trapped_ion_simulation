@@ -223,6 +223,15 @@ class SimulationState:
         self.initial_positions = self.positions.copy()
         self.initialized = True
         print(f"✅ Force minimization complete. RMS force: {np.linalg.norm(force_equations(self.positions.flatten()))} amu·μm·μs⁻²")
+        
+    def sort_positions(self, axis = 0):
+        """
+        Sorts the positions based on either the x (0) or y (1) axis 
+        """
+
+        sorted_indices = np.argsort(self.positions[:, axis])
+
+        self.positions = self.positions[sorted_indices]
 
 
 
@@ -306,6 +315,47 @@ class SimulationRunner:
 
     def get_temperature(self, kinetic_energy):
         return kinetic_energy / (units.kB * self.N)
+    
+    def check_stability(self, stability_steps = 1000):
+        """
+        Runs the simulation for x steps at zero temperature and 
+        returns the RMS deviation in positions from the starting configuration.
+        """
+        # Store original temperature
+        original_T_mK = self.config.T_mK
+        original_T_internal = self.T
+
+        # Set temperature to zero
+        self.config.T_mK = 0.0
+        self.T = 0.0
+
+        # Record initial positions
+        initial_positions = self.state.positions.copy()
+
+        # Temporarily override number of steps
+        original_num_steps = self.config.num_steps
+        self.config.num_steps = stability_steps
+
+        # Run the simulation (no verbose output)
+        self.run(verbose=False)
+
+        # Compute RMS deviation in positions
+        displacement = self.state.positions - initial_positions
+        rms_dev = np.linalg.norm(displacement)
+
+        # Restore original settings
+        self.config.num_steps = original_num_steps
+        self.config.T_mK = original_T_mK
+        self.T = original_T_internal
+        self.state.positions = initial_positions
+
+        return rms_dev
+    
+    def display_stability(self, stability_steps = 1000):
+        rms_dev = self.check_stability(stability_steps = stability_steps)
+        
+        print(f"After running the simulation for {stability_steps} steps ({stability_steps * self.config.dt} μs of simulation time), the RMS positional deviation is about {rms_dev} μm. For 1000 steps and 1 μs, any RMS deviation above about 10^-5 μm indicates instability.")
+
     
     
 class SimulationIO:
@@ -420,12 +470,16 @@ class SimulationVisualizer:
             
         plt.show()
 
-    def plot_trajectory(self, state: SimulationState, square=True):
+    def plot_trajectory(self, state: SimulationState, square = True, max_index = None):
+        
+        if max_index is None:
+            max_index = len(state.trajectory)
+        
         plt.figure(figsize=(8, 8))
         for i in range(state.N):
-            plt.plot(state.trajectory[:, i, 0], state.trajectory[:, i, 1])
+            plt.plot(state.trajectory[:max_index, i, 0], state.trajectory[:max_index, i, 1])
             plt.scatter(state.trajectory[0, i, 0], state.trajectory[0, i, 1], color='red', label=f'Start {i+1}' if i == 0 else "")
-            plt.scatter(state.trajectory[-1, i, 0], state.trajectory[-1, i, 1], color='blue', label=f'End {i+1}' if i == 0 else "")
+            plt.scatter(state.trajectory[max_index-1, i, 0], state.trajectory[max_index-1, i, 1], color='blue', label=f'End {i+1}' if i == 0 else "")
         plt.title(f"Trajectories of {state.N} Particles")
         plt.xlabel("x-coordinate (μm)")
         plt.ylabel("y-coordinate (μm)")
