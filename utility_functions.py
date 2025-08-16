@@ -5,7 +5,9 @@
 Mainly this contains small self contained functions for exchanging data types to one another
 """
 
+import ijson
 import numpy as np
+import os
 
 def positions_to_xy(positions):
     # Takes [[x1,y1],[x2,y2],[x3,y3]]
@@ -52,6 +54,117 @@ def positions_to_flattened_positions(positions):
     # Returns [x1, y1, x2, y2, x3, y3]
     return positions.flatten()   
 
+
+###########################################
+# File handling
+###########################################
+
+def get_final_positions(traj_file: str) -> np.ndarray:
+    """
+    This function is very slow! Uses ijson
+    Stream-read a large JSON trajectory file and return the final positions (N, 2).
+    Avoids loading the whole file into memory.
+    """
+    if not os.path.exists(traj_file):
+        raise FileNotFoundError(f"Trajectory file not found: {traj_file}")
+
+    last_positions = None
+    with open(traj_file, 'r') as f:
+        for positions in ijson.items(f, 'item'):  # 'item' iterates over top-level array elements
+            last_positions = positions
+
+    if last_positions is None:
+        raise ValueError("Trajectory file is empty or incorrectly formatted.")
+
+    arr = np.array(last_positions, dtype=float)
+    if arr.ndim != 2 or arr.shape[1] != 2:
+        raise ValueError(f"Unexpected final positions shape {arr.shape}; expected (N, 2).")
+        
+        
+    return arr
+
+
+def check_for_defect(positions: np.ndarray, tol: float = 1e-9):
+    """
+    Seems to return the wrong sides?
+    Classify ions by side w.r.t. the mean x-position and check if the non-centered ions form a zigzag.
+
+    Parameters
+    ----------
+    positions : (N, 2) array-like
+        Each row is [x, y] for an ion. Must already be sorted by ascending y (bottom->top).
+    tol : float
+        If |x - mean_x| <= tol, the ion is 'center'.
+
+    Returns
+    -------
+    is_perfect_zigzag : bool
+        True if (after excluding 'center' ions) the remaining ions alternate strictly left/right.
+        Sequences of length 0 or 1 (after exclusion) are considered trivially zigzag (True).
+    defect_indices : list[int]
+        Zero-based indices (in the original array) of ions that break the zigzag pattern.
+        Only indices from the non-center subset can appear here.
+    left : list[int]
+        Zero-based indices (original indexing) of ions left of mean_x - tol.
+    right : list[int]
+        Zero-based indices (original indexing) of ions right of mean_x + tol.
+    center : list[int]
+        Zero-based indices (original indexing) of ions with |x - mean_x| <= tol.
+
+    Behavior
+    --------
+    - Asserts that y is nondecreasing (already sorted bottom->top).
+    - Computes mean_x and classifies each ion into left/right/center using `tol`.
+    - Checks strictly alternating sides among the non-center ions only.
+    - Prints a concise human-readable summary.
+    """
+    pos = np.asarray(positions, dtype=float)
+    assert pos.ndim == 2 and pos.shape[1] == 2, "positions must be an (N, 2) array of [x, y]."
+
+    # 1) Assert sorted by y (bottom -> top).
+    y = pos[:, 1]
+    assert np.all(y[:-1] <= y[1:]), "Ion positions must be pre-sorted by ascending y (bottom->top)."
+
+    # 2) Classify relative to mean x
+    x = pos[:, 0]
+    mean_x = np.mean(x)
+    dx = x - mean_x
+
+    left  = np.flatnonzero(dx <  -tol).tolist()
+    right = np.flatnonzero(dx >   tol).tolist()
+    center = np.flatnonzero(np.abs(dx) <= tol).tolist()
+
+    # Non-center set in bottom->top order
+    noncenter_indices = [i for i in range(len(pos)) if i not in center]
+    if len(noncenter_indices) <= 1:
+        # Trivially zigzag (nothing to alternate against)
+        print(f"No defects: zigzag holds among non-center ions (mean_x={mean_x:.6g}).")
+        return True, [], left, right, center
+
+    # 3) Build sides for the non-center sequence: -1 for left, +1 for right
+    #    (center are excluded by construction)
+    sides_noncenter = np.sign(dx[noncenter_indices]).astype(int)  # will be -1 or +1
+
+    # 4) Expected pattern: strict alternation anchored to the first non-center ion
+    first_side = int(sides_noncenter[0])  # -1 or +1
+    expected_noncenter = first_side * (-1) ** np.arange(len(noncenter_indices))
+
+    # 5) Defects: mismatches within the non-center sequence
+    mismatches = np.flatnonzero(sides_noncenter != expected_noncenter)
+    defect_indices = [noncenter_indices[j] for j in mismatches]
+
+    # 6) Reporting
+    if len(defect_indices) == 0:
+        print(f"No defects: perfect zigzag among non-center ions (mean_x={mean_x:.6g}).")
+        return True, [], left, right, center
+
+    print(f"Defect(s) detected (mean_x={mean_x:.6g}):")
+    for i in defect_indices:
+        side_str = "left" if dx[i] < 0 else "right"
+        expected_str = "left" if (first_side * (-1)**(noncenter_indices.index(i)) == -1) else "right"
+        print(f"  - Ion #{i+1}: x={x[i]:.6g}, y={y[i]:.6g}, side={side_str}, expected={expected_str}")
+
+    return False, defect_indices, left, right, center
 
 ###########################################
 # Zigzag functions

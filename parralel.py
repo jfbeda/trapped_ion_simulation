@@ -39,7 +39,7 @@ from dataclasses import asdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
 # ^ProcessPoolExecutor does the parralel processing
 
-from parralel_workers import run_single_quench, process_single_density_map, process_single_temperature_plot, run_single_for_dt, process_single_rolling_average_density_map
+from parralel_workers import run_single_quench, process_single_density_map, process_single_temperature_plot, run_single_for_dt, process_single_rolling_average_density_map, process_single_defect_plot
 # Each of the 
 
 import glob
@@ -82,6 +82,50 @@ def run_convergence_test(base_config: SimulationConfig, loadfile: str, output_di
     print(f"📊 Results saved to {results_path}")
     return results
 
+def plot_defect_plots(final_positions_folder: str,
+                      output_dir: str,
+                      base_config: SimulationConfig,
+                      num_workers: int = None,
+                      tol = None,
+                      square: bool = False,
+                      extension: str = "png"):
+    """
+    Generate defect plots in parallel from <final_positions_folder> (e.g. 'my_quench_final_positions'),
+    saving images to <output_dir>.
+    """
+
+    root = base_config.output_path
+    src_dir = os.path.join(root, final_positions_folder)
+    dst_dir = os.path.join(root, output_dir)
+    os.makedirs(dst_dir, exist_ok=True)
+
+    files = sorted(
+        glob.glob(os.path.join(src_dir, "*.json")),
+        key=lambda f: float(re.search(r"_(\d+\.\d+)_final_positions", os.path.basename(f)).group(1)) if re.search(r"_(\d+\.\d+)_final_positions", os.path.basename(f)) else -1.0,
+        reverse=True
+    )
+    if not files:
+        print(f"⚠️ No final-positions JSON files found in: {src_dir}")
+        return
+
+    base_config_dict = asdict(base_config)
+
+    print(f"🧵 Generating defect plots from {len(files)} files in parallel...")
+    with ProcessPoolExecutor(max_workers=num_workers) as executor:
+        futures = [
+            executor.submit(
+                process_single_defect_plot,
+                fp, dst_dir, base_config_dict, tol, square, extension
+            )
+            for fp in files
+        ]
+        for f in futures:
+            f.result()  # surface exceptions
+
+    print("✅ All defect plots generated.")
+    
+    
+    
 # After `results` is obtained from run_convergence_test
 def plot_convergence_results(results, output_dir):
     dts = [r[0] for r in results]
@@ -104,6 +148,7 @@ def run_quench_series(config, loadfile, output_dir,
                                g_start, g_end, g_step, num_workers = 4):
     full_output_dir = os.path.join(config.output_path,output_dir)
     os.makedirs(full_output_dir, exist_ok = True)
+    os.makedirs(f"{full_output_dir}_final_positions", exist_ok = True) # HACK
     gammas = np.linspace(g_start, g_end, g_step)
     base_config_dict = asdict(config)
     print("Beginning to parralel quench")

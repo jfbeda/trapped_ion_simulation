@@ -3,13 +3,13 @@ import numpy as np
 import os
 import json
 from dataclasses import asdict
-from simulation_module import SimulationConfig, SimulationState, SimulationRunner, SimulationIO, AnimationMaker  # Adjust import if needed
+from simulation_module import SimulationConfig, SimulationState, SimulationRunner, SimulationIO, AnimationMaker, SimulationVisualizer
 from histogram_workers import histogram_from_trajectory_slice, plot_density_map_from_histogram
+from utility_functions import get_final_positions, check_for_defect
 import matplotlib.pyplot as plt
 import re
 import natural_units as units
 from time import time
-# import ijson
 
 def run_single_for_dt(dt, config_dict, positions, run_time_us):
     start = time()
@@ -37,6 +37,59 @@ def run_single_for_dt(dt, config_dict, positions, run_time_us):
 
     
     return dt, early_temp_mK, late_temp_mK, time()-start
+
+def process_single_defect_plot(final_pos_file: str,
+                               output_dir: str,
+                               base_config_dict: dict,
+                               tol,
+                               square: bool,
+                               extension: str):
+    """
+    Worker: load final positions, run zigzag classification, and let the visualizer
+    save the image directly via SimulationVisualizer(save=..., filename=...).
+    """
+        
+    
+    # Parse gamma from filename; expects "..._<gamma>_final_positions.json"
+    m = re.search(r"_(\d+\.\d+)_final_positions\.json$", os.path.basename(final_pos_file))
+    gamma = float(m.group(1)) if m else float(base_config_dict.get("g", 0.0))
+
+    # Load final positions
+    with open(final_pos_file, "r") as f:
+        pos = np.asarray(json.load(f), dtype=float)
+
+    # Minimal state for plotting
+    config = SimulationConfig(**{**base_config_dict, "g": gamma})
+    state = SimulationState(config)
+    state.positions = pos
+    state.initialized = True
+    state.sort_positions(axis = 1)
+    
+    # If the tolerance is not specified it, set it to 10% of the maximum range of the x-values of the data points
+    if tol is None:
+        x_range = np.max(pos[:, 0]) - np.min(pos[:, 0])
+        tol = 0.1 * x_range   
+    
+    # Zigzag classification
+    zigzag, defects, left, right, center = check_for_defect(state.positions, tol=tol)
+
+    # Ensure output dir and build filename
+    os.makedirs(output_dir, exist_ok=True)
+    outfile = os.path.join(output_dir, f"defect_plot_gamma_{gamma:.6f}.{extension}")
+
+    # Create visualizer with save options
+    viz = SimulationVisualizer(save=True, filename=outfile)
+    viz.plot_positions(
+        state,
+        square=square,
+        left=right,       # intentional swap
+        center=center,
+        right=left,       # intentional swap
+        midline=True,
+        defects=defects
+    )
+    print(f"🧩 Saved defect plot → {outfile}")
+
 
 
 def process_single_density_map(
@@ -215,7 +268,11 @@ def run_single_quench(gamma, base_config_dict, loadfile, output_dir):
     runner = SimulationRunner(state.config, state)
     runner.run()
     IO.save_trajectory(state.trajectory, out_file)
-#     return f"Written {out_file}"
+
+    final_positions_dir = output_dir.rstrip("/\\") + "_final_positions"
+    os.makedirs(final_positions_dir, exist_ok=True)
+    IO.save_positions(state.positions, os.path.join(final_positions_dir, f"{base_config_dict['N']}_{gamma:.14f}_final_positions.json"))
+
 
 
 def estimate_temperature(trajectory, dt, m, grainyness):

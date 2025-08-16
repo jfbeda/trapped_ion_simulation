@@ -448,27 +448,78 @@ class SimulationVisualizer:
         return self._full_path(base)
 
         
-    def plot_positions(self, state: SimulationState, square=True):
+    def plot_positions(self, state: SimulationState, square = True, left = None, center = None, right = None, midline = False, defects = None):
+        # Default: all ions in 'left' if no group provided
+        if left is None and center is None and right is None:
+            left = list(range(1, state.N + 1))
+
+        # Ensure lists even if not provided
+        left = left or []
+        center = center or []
+        right = right or []
+        defects = set((defects or []))  # 1-indexed ion numbers
+
         x = state.positions[:, 0]
         y = state.positions[:, 1]
 
         plt.figure(figsize=(8, 8))
-        plt.scatter(x, y, color='blue', s=100)
-        for i, (xi, yi) in enumerate(zip(x, y)):
-            plt.text(xi, yi, f"{i+1}", fontsize=12, ha='right', color='red')
+
+        # Plot points by group, with square markers for defects
+        shown_labels = set()
+        for group, color, label in [
+            (left, 'blue', 'Left'),
+            (center, 'green', 'Center'),
+            (right, 'red', 'Right')
+        ]:
+            if not group:
+                continue
+
+            idxs = [i - 1 for i in group]  # 1-indexed -> 0-indexed
+            idxs_def = [i - 1 for i in group if i in defects]
+            idxs_norm = [i for i in idxs if (i + 1) not in defects]
+
+            # Normal (circle) points
+            if idxs_norm:
+                plt.scatter(x[idxs_norm], y[idxs_norm], color=color, s=100,
+                            marker='o', label=(label if label not in shown_labels else None))
+                shown_labels.add(label)
+                for i in idxs_norm:
+                    plt.text(x[i], y[i], f"{i+1}", fontsize=12, ha='right', color='black')
+
+            # Defect (square) points, same color
+            if idxs_def:
+                defect_label = f"{label} (defect)"
+                plt.scatter(x[idxs_def], y[idxs_def], color=color, s=120,
+                            marker='s', label=(defect_label if defect_label not in shown_labels else None))
+                shown_labels.add(defect_label)
+                for i in idxs_def:
+                    plt.text(x[i], y[i], f"{i+1}", fontsize=12, ha='right', color='black')
+
+        # Crosshairs
         plt.axhline(0, color='gray', linestyle='--', linewidth=0.8)
         plt.axvline(0, color='gray', linestyle='--', linewidth=0.8)
+
+        # Midline at average x
+        if midline:
+            avg_x = x.mean()
+            plt.axvline(avg_x, color='purple', linestyle='--', linewidth=1.2, label='Midline')
+
         plt.xlabel('x-coordinate (μm)')
         plt.ylabel('y-coordinate (μm)')
         plt.title(f'Particle Positions for N = {state.N}')
         plt.grid(True)
+
         if square:
             plt.gca().set_aspect('equal', adjustable='box')
-        
+
+        plt.legend()
+
         if self.save:
             plt.savefig(self._pick_name(f"{state.N}_positions_plot"))
-            
+
         plt.show()
+
+
 
     def plot_trajectory(self, state: SimulationState, square = True, max_index = None):
         
@@ -554,136 +605,6 @@ class SimulationVisualizer:
         plt.show()
         
 class AnimationMaker:
-#     @staticmethod
-#     def generate_density_map_images_from_quench_folder(traj_folder: str, output_dir: str, base_config: SimulationConfig):
-#         print(f"Processing trajectory files")
-#         os.makedirs(output_dir, exist_ok=True)
-
-#         # Sort trajectories by gamma (extracted from filenames), descending
-#         traj_files = sorted(
-#             glob.glob(os.path.join(traj_folder, "*.json")),
-#             key=lambda f: float(re.search(r"_(\d+\.\d+)_traj", os.path.basename(f)).group(1)),
-#             reverse=True
-#         )
-
-#         # Determine plot bounds from the trajectory with largest gamma
-#         with open(traj_files[0], 'r') as f:
-#             traj = np.array(json.load(f)).reshape(-1, 2)
-#         x_min, x_max = traj[:, 0].min(), traj[:, 0].max()
-#         y_min, y_max = traj[:, 1].min(), traj[:, 1].max()
-
-#         for i, traj_file in enumerate(traj_files):
-#             # Extract gamma from filename
-#             match = re.search(r"_(\d+\.\d+)_traj", os.path.basename(traj_file))
-#             gamma = float(match.group(1)) if match else 0.0
-#             filename = os.path.join(output_dir, f"frame_{i:03d}_gamma_{gamma:.6f}.png")
-
-#             if os.path.exists(filename):
-#                 print(f"Skipping frame {i:03d} (γ = {gamma:.6f}), image already exists.")
-#                 continue
-
-#             print(f"Processing {traj_file}")
-#             try:
-#                 with open(traj_file, 'r') as f:
-#                     traj = np.array(json.load(f))
-#             except json.JSONDecodeError as e:
-#                 print(f"JSON decode error in file: {traj_file}")
-#                 print(e)
-#                 continue
-#             except FileNotFoundError as e:
-#                 print(f"File not found: {traj_file}")
-#                 print(e)
-#                 continue
-
-#             # Clone base config and override gamma + steps
-#             config = SimulationConfig(**{**asdict(base_config), 'g': gamma, 'num_steps': traj.shape[0]})
-#             state = SimulationState(config)
-#             state.trajectory = traj
-#             state.positions = traj[-1]
-#             state.initialized = True
-
-#             # Generate density map
-#             positions = state.trajectory.reshape(-1, 2)
-#             x, y = positions[:, 0], positions[:, 1]
-#             hist, xedges, yedges = np.histogram2d(x, y, bins=100, range=[[x_min, x_max], [y_min, y_max]])
-#             hist = hist.T
-#             hist_norm = hist / np.max(hist) if np.max(hist) > 0 else hist
-#             extent = [xedges[0], xedges[-1], yedges[0], yedges[-1]]
-
-#             fig, ax = plt.subplots(figsize=(6, 6))
-#             im = ax.imshow(hist_norm, origin='lower', cmap='Greys', extent=extent, interpolation='nearest')
-#             ax.plot(0, 0, 'r+', markersize=10, markeredgewidth=2)
-#             ax.set_xlabel('x position')
-#             ax.set_ylabel('y position')
-#             ax.set_title(f'Ion Density Map: γ = {gamma:.6f}')
-#             ax.set_aspect('equal')
-#             fig.colorbar(im, ax=ax, label='Normalized density')
-#             plt.savefig(filename)
-#             plt.close(fig)
-            
-#     def generate_temperature_plots_from_quench_folder(traj_folder, output_dir, base_config, grainyness = 100):
-
-#         def estimate_temperature(trajectory, dt, m, grainyness):
-#             n_steps, N, _ = trajectory.shape
-#             n_windows = n_steps // grainyness - 1
-#             temperatures = []
-#             times = []
-#             for i in range(n_windows):
-#                 idx1 = i * grainyness
-#                 idx2 = i * grainyness + 1
-#                 delta_r = trajectory[idx2] - trajectory[idx1]
-#                 v_avg = delta_r / dt
-#                 kinetic_energy = 0.5 * m * np.sum(v_avg**2)
-#                 T = kinetic_energy / (N * units.kB)
-#                 temperatures.append(T)
-#                 times.append(idx1 * dt)
-#             return np.array(times), np.array(temperatures)
-
-#         os.makedirs(output_dir, exist_ok = True)
-
-#         traj_files = sorted(
-#             glob.glob(os.path.join(traj_folder, "*.json")),
-#             key=lambda f: float(re.search(r"_(\d+\.\d+)_traj", os.path.basename(f)).group(1)),
-#             reverse=True
-#         )
-
-#         for traj_file in traj_files:
-#             match = re.search(r"_(\d+\.\d+)_traj", os.path.basename(traj_file))
-#             gamma = float(match.group(1)) if match else 0.0
-#             outfile = os.path.join(output_dir, f"temperature_plot_{gamma:.6f}.png")
-
-#             try:
-#                 with open(traj_file, 'r') as f:
-#                     traj = np.array(json.load(f))
-#             except json.JSONDecodeError as e:
-#                 print(f"JSON decode error in file: {traj_file}")
-#                 print(e)
-#                 continue
-#             except FileNotFoundError as e:
-#                 print(f"File not found: {traj_file}")
-#                 print(e)
-#                 continue
-
-#             if traj.ndim != 3 or traj.shape[1:] != (base_config.N, 2):
-#                 print(f"Skipping {traj_file}, unexpected shape {traj.shape}")
-#                 continue
-
-#             times, temps = estimate_temperature(traj, base_config.dt, base_config.m, grainyness)
-#             temps_mK = units.theta_to_mK(temps) 
-#             plt.figure(figsize=(8, 4))
-#             plt.plot(times, temps_mK, label = "Temperature (mK)")  # Convert to mK
-#             plt.scatter(times[0], temps_mK[0], label = f"T0 = {temps_mK[0]:.3f} mK")
-#             plt.legend()
-#             plt.xlabel("Time (μs)")
-#             plt.ylabel("Temperature (mK)")
-#             plt.title(f"Estimated Temperature vs Time (γ = {gamma:.4f})")
-#             plt.grid(True)
-#             plt.tight_layout()
-#             plt.savefig(outfile)
-#             plt.close()
-
-#         print("✅ All temperature plots generated.")
-
 
     @staticmethod
     def make_gif_or_mp4_from_images(image_folder: str, output_file: str, fps: int = 4, reverse: bool = True):
