@@ -52,7 +52,7 @@ class Laser:
         )
     
     
-    def plot_force_vs_velocity(self, v_min=None, v_max=None, num_points=500, external_velocities=None):
+    def plot_force_vs_velocity(self, v_min=None, v_max=None, num_points=500, external_velocities=None, linear_approximate = True, save = False, filename = "force_vs_velocity.pdf"):
         """
         Plot the Doppler cooling force as a function of velocity along the laser direction,
         including a linear approximation around v = 0 using the damping coefficient.
@@ -85,17 +85,26 @@ class Laser:
         plt.plot(v_parallel, force_along_k, label='Full Doppler force', lw=2)
 
         # Linear approximation using damping
-        linear_approx = np.dot(self.force_at_zero, self.direction) - self.damping * v_parallel
-        plt.plot(v_parallel, linear_approx, '--', label='Linear approximation', lw=2)
+        if linear_approximate:
+            linear_approx = np.dot(self.force_at_zero, self.direction) - self.damping * v_parallel
+            plt.plot(v_parallel, linear_approx, '--', label='Linear approximation', lw=2)
 
         plt.xlabel('Velocity parallel to laser direction (μm/μs)')
-        plt.ylabel('Force along k (amu μm/μs²)')
+        plt.ylabel('Force parralel to laser direction (amu μm/μs²)')
         plt.title('Laser Cooling Force vs Velocity')
         plt.grid(True)
         plt.axhline(0, color='gray', linestyle='--', linewidth=0.8)
-        plt.legend()
+        
+        if not linear_approximate:
+            plt.legend()
+        
+        
+        if save:
+            plt.savefig(filename)
+ 
         plt.show()
-
+        
+        
     def animate_force_vs_velocity(self, all_velocities, v_min=None, v_max=None, num_points=500, interval=50, save_path=None):
         """
         Animate the Doppler cooling force with particles' velocities evolving over time.
